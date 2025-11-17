@@ -18,12 +18,34 @@ const app = express();
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:3000';
 const SESSION_SECRET = process.env.SESSION_SECRET || 'keyboard_cat_change_me';
 
+// Support multiple origins by allowing a comma-separated list in CLIENT_URL
+const allowedOrigins = CLIENT_URL.split(',').map(s => s.trim()).filter(Boolean);
+console.log('KAMBAZ allowedOrigins:', allowedOrigins);
+
 app.use(
   cors({
-    origin: CLIENT_URL,
+    origin: function (origin, callback) {
+      // Allow non-browser or same-origin requests (no origin)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      return callback(new Error('CORS policy: origin not allowed'), false);
+    },
     credentials: true,
   })
 );
+
+// Ensure the Access-Control-Allow-Origin header is a single matching origin
+// (not a comma-separated list). Some misconfigurations or proxies can lead
+// to multiple origins being sent; explicitly set the header here when the
+// request origin matches our allowed list.
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+  next();
+});
 
 const sessionOptions = {
   secret: SESSION_SECRET,
