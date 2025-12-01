@@ -13,7 +13,6 @@ import AssignmentsRoutes from './Kambaz/Assignments/routes.js';
 import EnrollmentsRoutes from './Kambaz/Enrollments/routes.js';
 
 const CONNECTION_STRING = process.env.DATABASE_CONNECTION_STRING || "mongodb://127.0.0.1:27017/kambaz";
-mongoose.connect( CONNECTION_STRING );
 const app = express();
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:3000';
 const SESSION_SECRET = process.env.SESSION_SECRET || 'keyboard_cat_change_me';
@@ -60,13 +59,29 @@ app.use( express.json() );
 
 
 
-// Mount route modules
-UsersRoutes( app, db );
-CourseRoutes( app, db );
-ModulesRoutes( app, db );
-AssignmentsRoutes( app, db );
-EnrollmentsRoutes( app, db );
-Lab5( app );
-Hello( app );
+async function start() {
+  try {
+    await mongoose.connect(CONNECTION_STRING, { serverSelectionTimeoutMS: 15000 });
+    console.log("MongoDB connected");
 
-app.listen( process.env.PORT || 4000 );
+    // Mount route modules only after successful DB connection
+    UsersRoutes( app, db );
+    CourseRoutes( app, db );
+    ModulesRoutes( app, db );
+    AssignmentsRoutes( app, db );
+    EnrollmentsRoutes( app, db );
+    Lab5( app );
+    Hello( app );
+
+    const port = process.env.PORT || 4000;
+    app.listen( port, () => {
+      console.log(`Server listening on port ${ port }`);
+    } );
+  } catch (err) {
+    console.error("Failed to connect to MongoDB:", err.message);
+    // Exit so Render restarts and logs are visible
+    process.exit(1);
+  }
+}
+
+start();
