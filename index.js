@@ -1,7 +1,6 @@
-import dotenv from 'dotenv';
-dotenv.config();
-
-import express from 'express';
+import "dotenv/config";
+import express from "express";
+import mongoose from "mongoose";
 import cors from 'cors';
 import session from 'express-session';
 import Hello from './Hello.js';
@@ -13,8 +12,9 @@ import ModulesRoutes from './Kambaz/Modules/routes.js';
 import AssignmentsRoutes from './Kambaz/Assignments/routes.js';
 import EnrollmentsRoutes from './Kambaz/Enrollments/routes.js';
 
+const CONNECTION_STRING = process.env.DATABASE_CONNECTION_STRING || "mongodb://127.0.0.1:27017/kambaz";
+mongoose.connect( CONNECTION_STRING );
 const app = express();
-
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:3000';
 const SESSION_SECRET = process.env.SESSION_SECRET || 'keyboard_cat_change_me';
 
@@ -55,20 +55,18 @@ if (process.env.SERVER_ENV !== 'development') {
   };
 }
 
-app.use(session(sessionOptions));
-app.use(express.json());
+app.use( session( sessionOptions ) );
+app.use( express.json() );
 
 
 
 // Mount route modules
-UsersRoutes(app, db);
-CourseRoutes(app, db);
-ModulesRoutes(app, db);
-AssignmentsRoutes(app, db);
-EnrollmentsRoutes(app, db);
-Lab5(app);
-Hello(app);
+UsersRoutes( app, db );
+CourseRoutes( app, db );
+ModulesRoutes( app, db );
+AssignmentsRoutes( app, db );
+EnrollmentsRoutes( app, db );
+Lab5( app );
+Hello( app );
 
-const port = process.env.PORT || 4000;
-app.listen(port, () => {
-});
+app.listen( process.env.PORT || 4000 );
