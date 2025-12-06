@@ -1,5 +1,6 @@
 import CoursesDao from "./dao.js";
 import EnrollmentsDao from "../Enrollments/dao.js";
+import * as pazzaDao from "../Pazza/dao.js";
 export default function CourseRoutes( app, db ) {
   const dao = CoursesDao( db );
   const enrollmentsDao = EnrollmentsDao( db );
@@ -23,7 +24,9 @@ export default function CourseRoutes( app, db ) {
   const createCourse = async ( req, res ) => {
     const newCourse = await dao.createCourse( req.body );
     const currentUser = req.session[ "currentUser" ];
-    enrollmentsDao.enrollUserInCourse( currentUser._id, newCourse._id );
+    await enrollmentsDao.enrollUserInCourse( currentUser._id, newCourse._id );
+    // Create default Pazza folders for this course
+    await pazzaDao.createDefaultFolders( newCourse._id );
     res.json( newCourse );
   };
   const deleteCourse = async ( req, res ) => {
