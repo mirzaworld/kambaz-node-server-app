@@ -155,6 +155,68 @@ export async function setPostVisibility(postId, visibility, visibleToUserIds = [
   );
 }
 
+/**
+ * Toggle good question vote for a post (instructors only)
+ * @param {String} postId - Post ID
+ * @param {String} userId - User ID of instructor voting
+ * @returns {Promise<Object>} Updated post
+ */
+export async function toggleGoodQuestion(postId, userId) {
+  const post = await postsModel.findById(postId);
+  if (!post) throw new Error("Post not found");
+
+  const goodQuestionBy = post.goodQuestionBy || [];
+  const index = goodQuestionBy.indexOf(userId);
+
+  if (index > -1) {
+    // User already voted, remove vote
+    goodQuestionBy.splice(index, 1);
+  } else {
+    // Add vote
+    goodQuestionBy.push(userId);
+  }
+
+  return postsModel.findByIdAndUpdate(
+    postId,
+    { 
+      goodQuestionBy,
+      goodQuestionCount: goodQuestionBy.length
+    },
+    { new: true }
+  );
+}
+
+/**
+ * Toggle good answer vote for a post
+ * @param {String} postId - Post ID
+ * @param {String} userId - User ID voting
+ * @returns {Promise<Object>} Updated post
+ */
+export async function toggleGoodAnswer(postId, userId) {
+  const post = await postsModel.findById(postId);
+  if (!post) throw new Error("Post not found");
+
+  const goodAnswerBy = post.goodAnswerBy || [];
+  const index = goodAnswerBy.indexOf(userId);
+
+  if (index > -1) {
+    // User already voted, remove vote
+    goodAnswerBy.splice(index, 1);
+  } else {
+    // Add vote
+    goodAnswerBy.push(userId);
+  }
+
+  return postsModel.findByIdAndUpdate(
+    postId,
+    { 
+      goodAnswerBy,
+      goodAnswerCount: goodAnswerBy.length
+    },
+    { new: true }
+  );
+}
+
 // ============================================================================
 // ANSWERS DAO
 // ============================================================================

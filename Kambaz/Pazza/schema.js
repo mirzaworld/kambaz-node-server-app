@@ -83,6 +83,22 @@ const postsSchema = new mongoose.Schema(
       type: Boolean,
       default: false, // true if instructor has answered
     },
+    goodQuestionCount: {
+      type: Number,
+      default: 0, // Count of instructors who marked this as good question
+    },
+    goodQuestionBy: {
+      type: [String], // Array of instructor user IDs who marked as good question
+      default: [],
+    },
+    goodAnswerCount: {
+      type: Number,
+      default: 0, // Count of users who marked answer as good
+    },
+    goodAnswerBy: {
+      type: [String], // Array of user IDs who marked answer as good
+      default: [],
+    },
   },
   { timestamps: true } // Auto-adds createdAt and updatedAt
 );
@@ -123,6 +139,14 @@ const answersSchema = new mongoose.Schema(
     content: {
       type: String,
       required: true, // HTML content from rich text editor
+    },
+    goodAnswerCount: {
+      type: Number,
+      default: 0, // Count of users who marked this answer as good
+    },
+    goodAnswerBy: {
+      type: [String], // Array of user IDs who marked answer as good
+      default: [],
     },
   },
   { timestamps: true }

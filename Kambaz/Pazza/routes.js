@@ -224,6 +224,56 @@ export default function PazzaRoutes(app) {
     }
   });
 
+  /**
+   * POST /api/courses/:cid/pazza/posts/:pid/good-question
+   * Toggle "good question" vote for a post (instructors only)
+   * Only instructors can vote, each instructor can vote once
+   * Returns: Updated post with goodQuestionCount and goodQuestionBy
+   */
+  app.post("/api/courses/:cid/pazza/posts/:pid/good-question", async (req, res) => {
+    const { pid } = req.params;
+    const currentUser = req.session?.currentUser;
+
+    if (!currentUser) {
+      return res.status(401).send({ error: "User must be logged in" });
+    }
+
+    // Only instructors can mark as good question
+    const isInstructor = ["INSTRUCTOR", "FACULTY", "TA", "ADMIN"].includes(currentUser.role);
+    if (!isInstructor) {
+      return res.status(403).send({ error: "Only instructors can mark questions as good" });
+    }
+
+    try {
+      const updatedPost = await pazzaDao.toggleGoodQuestion(pid, currentUser._id);
+      res.send(updatedPost);
+    } catch (error) {
+      res.status(500).send({ error: error.message });
+    }
+  });
+
+  /**
+   * POST /api/courses/:cid/pazza/posts/:pid/good-answer
+   * Toggle "good answer" vote for a post (any user)
+   * Each user can vote once, clicking again removes vote
+   * Returns: Updated post with goodAnswerCount and goodAnswerBy
+   */
+  app.post("/api/courses/:cid/pazza/posts/:pid/good-answer", async (req, res) => {
+    const { pid } = req.params;
+    const currentUser = req.session?.currentUser;
+
+    if (!currentUser) {
+      return res.status(401).send({ error: "User must be logged in" });
+    }
+
+    try {
+      const updatedPost = await pazzaDao.toggleGoodAnswer(pid, currentUser._id);
+      res.send(updatedPost);
+    } catch (error) {
+      res.status(500).send({ error: error.message });
+    }
+  });
+
   // =========================================================================
   // ANSWERS ROUTES
   // =========================================================================
