@@ -137,6 +137,24 @@ export async function markHasInstructorAnswer(postId) {
   );
 }
 
+/**
+ * Set post visibility (make private or public)
+ * @param {String} postId - Post ID
+ * @param {String} visibility - "ENTIRE_CLASS" or "SELECTED_STUDENTS"
+ * @param {Array} visibleToUserIds - User IDs who can see (if SELECTED_STUDENTS)
+ * @returns {Promise<Object>} Updated post
+ */
+export async function setPostVisibility(postId, visibility, visibleToUserIds = []) {
+  return postsModel.findByIdAndUpdate(
+    postId,
+    { 
+      visibility,
+      visibleToUserIds: visibility === "SELECTED_STUDENTS" ? visibleToUserIds : []
+    },
+    { new: true }
+  );
+}
+
 // ============================================================================
 // ANSWERS DAO
 // ============================================================================

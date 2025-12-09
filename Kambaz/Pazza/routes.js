@@ -9,6 +9,24 @@
 
 import * as pazzaDao from "./dao.js";
 
+// Helper function to check if user can view a post
+function canViewPost(post, currentUser) {
+  // If post is public, everyone can view
+  if (post.visibility === "ENTIRE_CLASS") return true;
+  
+  // If not logged in, can't view private
+  if (!currentUser) return false;
+  
+  // Instructors, TA, Faculty, Admin can always view
+  if (["INSTRUCTOR", "FACULTY", "TA", "ADMIN"].includes(currentUser.role)) return true;
+  
+  // Post author can view their own post
+  if (post.authorId === currentUser._id) return true;
+  
+  // Check if user is in visibleToUserIds (for private posts)
+  return (post.visibleToUserIds || []).includes(currentUser._id);
+}
+
 export default function PazzaRoutes(app) {
   // =========================================================================
   // POSTS ROUTES
@@ -23,6 +41,7 @@ export default function PazzaRoutes(app) {
   app.get("/api/courses/:cid/pazza/posts", async (req, res) => {
     const { cid } = req.params;
     const { folder } = req.query;
+    const currentUser = req.session?.currentUser;
 
     try {
       let posts;
@@ -33,7 +52,10 @@ export default function PazzaRoutes(app) {
         // All posts for course
         posts = await pazzaDao.findAllPosts(cid);
       }
-      res.send(posts);
+      
+      // Filter posts based on visibility and user permissions
+      const visiblePosts = posts.filter(post => canViewPost(post, currentUser));
+      res.send(visiblePosts);
     } catch (error) {
       res.status(500).send({ error: error.message });
     }
@@ -48,10 +70,13 @@ export default function PazzaRoutes(app) {
   app.get("/api/courses/:cid/pazza/posts/search", async (req, res) => {
     const { cid } = req.params;
     const { keyword } = req.query;
+    const currentUser = req.session?.currentUser;
 
     try {
       const posts = await pazzaDao.searchPosts(cid, keyword);
-      res.send(posts);
+      // Filter posts based on visibility and user permissions
+      const visiblePosts = posts.filter(post => canViewPost(post, currentUser));
+      res.send(visiblePosts);
     } catch (error) {
       res.status(500).send({ error: error.message });
     }
@@ -149,6 +174,51 @@ export default function PazzaRoutes(app) {
     try {
       await pazzaDao.deletePost(pid);
       res.send({ message: "Post deleted successfully" });
+    } catch (error) {
+      res.status(500).send({ error: error.message });
+    }
+  });
+
+  /**
+   * PUT /api/courses/:cid/pazza/posts/:pid/visibility
+   * Toggle post visibility (make private/public)
+   * Body: { visibility: "ENTIRE_CLASS" | "SELECTED_STUDENTS", visibleToUserIds: [authorId] }
+   * Only post author or instructors can change visibility
+   * Returns: Updated post
+   */
+  app.put("/api/courses/:cid/pazza/posts/:pid/visibility", async (req, res) => {
+    const { pid } = req.params;
+    const { visibility, visibleToUserIds } = req.body;
+    const currentUser = req.session?.currentUser;
+
+    // Check authorization
+    if (!currentUser) {
+      return res.status(401).send({ error: "User must be logged in" });
+    }
+
+    try {
+      // Get the post to check authorization
+      const post = await pazzaDao.findPostById(pid);
+      if (!post) {
+        return res.status(404).send({ error: "Post not found" });
+      }
+
+      // Only author or instructors can change visibility
+      const isAuthor = post.authorId === currentUser._id;
+      const isInstructor = ["INSTRUCTOR", "FACULTY", "TA", "ADMIN"].includes(currentUser.role);
+      
+      if (!isAuthor && !isInstructor) {
+        return res.status(403).send({ error: "You can only change visibility of your own posts" });
+      }
+
+      // Validate visibility value
+      if (!["ENTIRE_CLASS", "SELECTED_STUDENTS"].includes(visibility)) {
+        return res.status(400).send({ error: "Invalid visibility value" });
+      }
+
+      // Update post visibility
+      const updatedPost = await pazzaDao.setPostVisibility(pid, visibility, visibleToUserIds || []);
+      res.send(updatedPost);
     } catch (error) {
       res.status(500).send({ error: error.message });
     }
