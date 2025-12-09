@@ -227,8 +227,23 @@ export async function toggleGoodAnswer(postId, userId) {
  * @returns {Promise<Object>} Created answer
  */
 export async function createAnswer(answer) {
-  const newAnswer = new answersModel(answer);
-  return newAnswer.save();
+  try {
+    const newAnswer = new answersModel(answer);
+    return await newAnswer.save();
+  } catch (error) {
+    // If the legacy unique index (postId_1_authorRole_1) still exists, drop it and retry once
+    if (error?.code === 11000) {
+      try {
+        await answersModel.collection.dropIndex("postId_1_authorRole_1");
+        const retryAnswer = new answersModel(answer);
+        return await retryAnswer.save();
+      } catch (dropErr) {
+        // If drop fails or retry fails, bubble original error
+        throw error;
+      }
+    }
+    throw error;
+  }
 }
 
 /**
@@ -267,6 +282,37 @@ export async function updateAnswer(answerId, updates) {
  */
 export async function deleteAnswer(answerId) {
   return answersModel.findByIdAndDelete(answerId);
+}
+
+/**
+ * Toggle good answer vote on an answer
+ * @param {String} answerId - Answer ID
+ * @param {String} userId - User ID voting
+ * @returns {Promise<Object>} Updated answer
+ */
+export async function toggleGoodAnswerOnAnswer(answerId, userId) {
+  const answer = await answersModel.findById(answerId);
+  if (!answer) throw new Error("Answer not found");
+
+  const goodAnswerBy = answer.goodAnswerBy || [];
+  const index = goodAnswerBy.indexOf(userId);
+
+  if (index > -1) {
+    // User already voted, remove vote
+    goodAnswerBy.splice(index, 1);
+  } else {
+    // Add vote
+    goodAnswerBy.push(userId);
+  }
+
+  return answersModel.findByIdAndUpdate(
+    answerId,
+    { 
+      goodAnswerBy,
+      goodAnswerCount: goodAnswerBy.length
+    },
+    { new: true }
+  );
 }
 
 // ============================================================================
@@ -353,6 +399,37 @@ export async function deleteDiscussion(discussionId) {
   await followUpDiscussionModel.deleteMany({
     _id: { $in: [discussionId, ...replyIds] },
   });
+}
+
+/**
+ * Toggle helpful vote on a discussion
+ * @param {String} discussionId - Discussion ID
+ * @param {String} userId - User ID voting
+ * @returns {Promise<Object>} Updated discussion
+ */
+export async function toggleHelpful(discussionId, userId) {
+  const discussion = await followUpDiscussionModel.findById(discussionId);
+  if (!discussion) throw new Error("Discussion not found");
+
+  const helpfulBy = discussion.helpfulBy || [];
+  const index = helpfulBy.indexOf(userId);
+
+  if (index > -1) {
+    // User already voted, remove vote
+    helpfulBy.splice(index, 1);
+  } else {
+    // Add vote
+    helpfulBy.push(userId);
+  }
+
+  return followUpDiscussionModel.findByIdAndUpdate(
+    discussionId,
+    { 
+      helpfulBy,
+      helpfulCount: helpfulBy.length
+    },
+    { new: true }
+  );
 }
 
 // ============================================================================

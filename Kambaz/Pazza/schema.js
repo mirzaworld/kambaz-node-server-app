@@ -152,8 +152,8 @@ const answersSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Compound index: only allow one answer per (postId, authorRole)
-answersSchema.index({ postId: 1, authorRole: 1 }, { unique: true });
+// Allow multiple answers per role per post (no unique compound index)
+// answersSchema.index({ postId: 1, authorRole: 1 }, { unique: true });
 
 // ============================================================================
 // FOLLOW UP DISCUSSIONS SCHEMA
@@ -199,6 +199,14 @@ const followUpDiscussionSchema = new mongoose.Schema(
     resolved: {
       type: Boolean,
       default: false, // Toggle between Resolved/Unresolved by author/instructor
+    },
+    helpfulCount: {
+      type: Number,
+      default: 0, // Count of users who marked this discussion as helpful
+    },
+    helpfulBy: {
+      type: [String], // Array of user IDs who marked as helpful
+      default: [],
     },
   },
   { timestamps: true }
