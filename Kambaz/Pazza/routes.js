@@ -8,6 +8,7 @@
  */
 
 import * as pazzaDao from "./dao.js";
+import AssignmentsDao from "../Assignments/dao.js";
 
 // Helper function to check if user can view a post
 function canViewPost(post, currentUser) {
@@ -28,6 +29,7 @@ function canViewPost(post, currentUser) {
 }
 
 export default function PazzaRoutes(app) {
+  const assignmentsDao = AssignmentsDao();
   // =========================================================================
   // STATS ROUTES
   // =========================================================================
@@ -280,12 +282,19 @@ export default function PazzaRoutes(app) {
         return res.status(404).send({ error: "Post not found" });
       }
 
-      // Only author or instructors can change visibility
+      // Check authorization:
+      // - Students can only change their OWN post visibility (can make private or public)
+      // - Instructors/Faculty/TA/Admin can only make posts PUBLIC (cannot make private)
       const isAuthor = post.authorId === currentUser._id;
       const isInstructor = ["INSTRUCTOR", "FACULTY", "TA", "ADMIN"].includes(currentUser.role);
       
       if (!isAuthor && !isInstructor) {
         return res.status(403).send({ error: "You can only change visibility of your own posts" });
+      }
+
+      // Instructors cannot make posts private, only public
+      if (isInstructor && visibility === "SELECTED_STUDENTS") {
+        return res.status(403).send({ error: "Instructors can only make posts public, not private" });
       }
 
       // Validate visibility value
@@ -668,6 +677,33 @@ export default function PazzaRoutes(app) {
   // =========================================================================
   // FOLDERS ROUTES
   // =========================================================================
+
+  /**
+   * POST /api/courses/:cid/pazza/sync-assignments
+   * Create folders for assignments that don't already have one
+   * Returns: Array of newly created folder documents (empty if none created)
+   */
+  app.post("/api/courses/:cid/pazza/sync-assignments", async (req, res) => {
+    const { cid } = req.params;
+    const currentUser = req.session?.currentUser;
+
+    if (!currentUser) {
+      return res.status(401).send({ error: "User must be logged in" });
+    }
+
+    const isInstructor = ["INSTRUCTOR", "FACULTY", "TA", "ADMIN"].includes(currentUser.role);
+    if (!isInstructor) {
+      return res.status(403).send({ error: "Only instructors can sync assignments" });
+    }
+
+    try {
+      const assignments = await assignmentsDao.findAssignmentsForCourse(cid);
+      const createdFolders = await pazzaDao.syncFoldersWithAssignments(cid, assignments || []);
+      res.send(createdFolders);
+    } catch (error) {
+      res.status(500).send({ error: error.message });
+    }
+  });
 
   /**
    * GET /api/courses/:cid/pazza/folders

@@ -519,3 +519,35 @@ export async function deleteFolder(folderId) {
 export async function deleteFolders(folderIds) {
   return foldersModel.deleteMany({ _id: { $in: folderIds } });
 }
+
+/**
+ * Create folders for any assignments that don't already have a folder
+ * @param {String} courseId - Course ID
+ * @param {Array<Object>} assignments - Array of assignment objects with `title`
+ * @returns {Promise<Array>} Newly created folder documents
+ */
+export async function syncFoldersWithAssignments(courseId, assignments = []) {
+  // Build a case-insensitive set of existing folder names to avoid duplicates
+  const existingFolders = await findAllFolders(courseId);
+  const existingNames = new Set(
+    existingFolders.map((f) => (f.name || "").trim().toLowerCase())
+  );
+
+  const foldersToCreate = [];
+
+  assignments.forEach((assignment) => {
+    const title = (assignment?.title || "").trim();
+    if (!title) return;
+    const key = title.toLowerCase();
+    if (!existingNames.has(key)) {
+      existingNames.add(key);
+      foldersToCreate.push({ courseId, name: title });
+    }
+  });
+
+  if (foldersToCreate.length === 0) {
+    return [];
+  }
+
+  return foldersModel.insertMany(foldersToCreate);
+}
