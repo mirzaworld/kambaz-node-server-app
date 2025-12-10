@@ -6,7 +6,12 @@ export default function UserRoutes( app, db ) {
     const currentUser = await dao.findUserByCredentials( username, password );
     if ( currentUser ) {
       req.session[ "currentUser" ] = currentUser;
-      res.json( currentUser );
+      req.session.save( ( err ) => {
+        if ( err ) {
+          return res.status( 500 ).json( { message: "Session save failed" } );
+        }
+        res.json( currentUser );
+      } );
     } else {
       res.status( 401 ).json( { message: "Unable to login. Try again later." } );
     }
@@ -19,7 +24,12 @@ export default function UserRoutes( app, db ) {
     }
     const currentUser = await dao.createUser( req.body );
     req.session[ "currentUser" ] = currentUser;
-    res.json( currentUser );
+    req.session.save( ( err ) => {
+      if ( err ) {
+        return res.status( 500 ).json( { message: "Session save failed" } );
+      }
+      res.json( currentUser );
+    } );
   };
   const findAllUsers = async ( req, res ) => {
     const { role, name } = req.query;
