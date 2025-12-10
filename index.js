@@ -18,7 +18,16 @@ const app = express();
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:3000';
 const SESSION_SECRET = process.env.SESSION_SECRET || 'keyboard_cat_change_me';
 
-const allowedOrigins = CLIENT_URL.split(',').map(s => s.trim()).filter(Boolean);
+const defaultAllowed = [
+  'http://localhost:3000',
+  'https://kambaz-next-js-git-a6-mirza-saad-ali-baigs-projects.vercel.app',
+  'https://kambaz-server-2ht7.onrender.com',
+];
+
+const allowedOrigins = Array.from(new Set([
+  ...CLIENT_URL.split(',').map(s => s.trim()).filter(Boolean),
+  ...defaultAllowed,
+]));
 
 app.use(
   cors({
