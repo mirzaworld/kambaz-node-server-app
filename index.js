@@ -36,8 +36,6 @@ app.use((req, res, next) => {
   if (origin && allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   }
   next();
 });
@@ -53,28 +51,12 @@ if (process.env.SERVER_ENV !== 'development') {
   sessionOptions.cookie = {
     sameSite: 'none',
     secure: true,
-    httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    domain: process.env.SERVER_URL,
   };
 }
 
 app.use( session( sessionOptions ) );
 app.use( express.json() );
-
-// Handle preflight OPTIONS requests for CORS (especially for Safari)
-app.use((req, res, next) => {
-  if (req.method === 'OPTIONS') {
-    const origin = req.headers.origin;
-    if (origin && allowedOrigins.includes(origin)) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Access-Control-Allow-Credentials', 'true');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    }
-    return res.sendStatus(200);
-  }
-  next();
-});
 
 
 
