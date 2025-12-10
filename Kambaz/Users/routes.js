@@ -75,7 +75,8 @@ export default function UserRoutes( app, db ) {
   const profile = ( req, res ) => {
     const currentUser = req.session[ "currentUser" ];
     if ( !currentUser ) {
-      res.sendStatus( 401 );
+      // Return 204 so browsers don't log a 401 when no session exists yet
+      res.sendStatus( 204 );
       return;
     }
     res.json( currentUser );
