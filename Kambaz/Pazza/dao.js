@@ -50,6 +50,18 @@ export async function findPostsByFolder(courseId, folder) {
 }
 
 /**
+ * Get drafts for a specific author (private to user)
+ * @param {String} courseId - Course ID
+ * @param {String} authorId - Author user ID
+ * @returns {Promise<Array>} Array of draft posts by this author
+ */
+export async function findDraftsByAuthor(courseId, authorId) {
+  return postsModel
+    .find({ courseId, authorId, isDraft: true })
+    .sort({ createdAt: -1 });
+}
+
+/**
  * Get a specific post by ID
  * @param {String} postId - Post ID
  * @returns {Promise<Object>} Post document
@@ -338,6 +350,40 @@ export async function findAllDiscussionsForPost(postId) {
   return followUpDiscussionModel
     .find({ postId, parentDiscussionId: null })
     .sort({ createdAt: -1 }); // Newest first
+}
+
+// Fetch a single discussion by id
+export async function findDiscussionById(discussionId) {
+  return followUpDiscussionModel.findById(discussionId);
+}
+
+// Fetch top-level discussions with their first-level replies attached
+export async function findDiscussionsWithReplies(postId) {
+  const discussions = await followUpDiscussionModel
+    .find({ postId, parentDiscussionId: null })
+    .sort({ createdAt: -1 });
+
+  const buildReplies = async (discussionId) => {
+    const replies = await followUpDiscussionModel
+      .find({ parentDiscussionId: discussionId })
+      .sort({ createdAt: 1 });
+
+    return Promise.all(
+      replies.map(async (reply) => ({
+        ...reply.toObject(),
+        replies: await buildReplies(reply._id),
+      }))
+    );
+  };
+
+  const withReplies = await Promise.all(
+    discussions.map(async (discussion) => ({
+      ...discussion.toObject(),
+      replies: await buildReplies(discussion._id),
+    }))
+  );
+
+  return withReplies;
 }
 
 /**

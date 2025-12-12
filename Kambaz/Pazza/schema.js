@@ -99,6 +99,10 @@ const postsSchema = new mongoose.Schema(
       type: [String], // Array of user IDs who marked answer as good
       default: [],
     },
+    isDraft: {
+      type: Boolean,
+      default: false, // true if post is a draft (not published)
+    },
   },
   { timestamps: true } // Auto-adds createdAt and updatedAt
 );

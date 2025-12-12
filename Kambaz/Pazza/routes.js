@@ -42,7 +42,9 @@ export default function PazzaRoutes(app) {
   app.get("/api/courses/:cid/pazza/stats", async (req, res) => {
     const { cid } = req.params;
     try {
-      const posts = await pazzaDao.findAllPosts(cid);
+      const allPosts = await pazzaDao.findAllPosts(cid);
+      // IMPORTANT: Exclude draft posts from all stats calculations
+      const posts = allPosts.filter(p => !p.isDraft);
       const questions = posts.filter(p => p.type === "QUESTION");
       
       // Count instructor responses (any post with at least one instructor answer)
@@ -69,22 +71,17 @@ export default function PazzaRoutes(app) {
         }
       }
 
-      // Count student responses (discussions + replies by students)
+      // Count student responses (STUDENT ANSWERS only, not discussions)
       let studentResponsesCount = 0;
       for (const post of posts) {
-        const discussions = await pazzaDao.findAllDiscussionsForPost(post._id);
-        for (const discussion of discussions) {
-          if (discussion.authorRole === "STUDENT") {
-            studentResponsesCount++;
-          }
-          // Count replies
-          const replies = await pazzaDao.findRepliesForDiscussion(discussion._id);
-          const studentReplies = replies.filter(r => r.authorRole === "STUDENT");
-          studentResponsesCount += studentReplies.length;
-        }
+        const answers = await pazzaDao.findAllAnswersForPost(post._id);
+        const studentAnswers = answers.filter(a => 
+          a.authorRole === "STUDENT" || a.authorRole === "USER"
+        );
+        studentResponsesCount += studentAnswers.length;
       }
 
-      // Count unresolved followups
+      // Count unresolved followups (count of posts with at least one unresolved discussion)
       let unresolvedFollowupsCount = 0;
       for (const post of posts) {
         const discussions = await pazzaDao.findAllDiscussionsForPost(post._id);
@@ -101,6 +98,42 @@ export default function PazzaRoutes(app) {
         instructorResponses: instructorResponsesCount,
         studentResponses: studentResponsesCount,
         unresolvedFollowups: unresolvedFollowupsCount,
+      });
+    } catch (error) {
+      res.status(500).send({ error: error.message });
+    }
+  });
+
+  /**
+   * GET /api/courses/:cid/pazza/fix-drafts
+   * MAINTENANCE ENDPOINT: Fix any posts in "Drafts" folder that are missing isDraft flag
+   * This corrects any drafts created before isDraft field was added
+   * Returns: { fixed: count }
+   */
+  app.get("/api/courses/:cid/pazza/fix-drafts", async (req, res) => {
+    const { cid } = req.params;
+    const currentUser = req.session?.currentUser;
+    
+    // Only allow instructors to run maintenance
+    if (!currentUser || !["INSTRUCTOR", "FACULTY", "ADMIN", "TA"].includes(currentUser.role)) {
+      return res.status(403).send({ error: "Unauthorized" });
+    }
+
+    try {
+      // Find all posts in "Drafts" folder that don't have isDraft: true
+      const allPosts = await pazzaDao.findAllPosts(cid);
+      const draftsInFolder = allPosts.filter(p => 
+        p.folders && p.folders.includes("Drafts") && !p.isDraft
+      );
+
+      // Update each one to mark as draft
+      for (const post of draftsInFolder) {
+        await pazzaDao.updatePost(post._id, { isDraft: true });
+      }
+
+      res.send({ 
+        message: "Draft folder corrected",
+        fixed: draftsInFolder.length 
       });
     } catch (error) {
       res.status(500).send({ error: error.message });
@@ -125,12 +158,23 @@ export default function PazzaRoutes(app) {
     try {
       let posts;
       if (folder) {
+        // Special handling for Drafts folder - show only user's own drafts
+        if (folder === "Drafts") {
+          if (!currentUser) {
+            return res.send([]); // No drafts if not logged in
+          }
+          posts = await pazzaDao.findDraftsByAuthor(cid, currentUser._id);
+          return res.send(posts); // Return drafts without further filtering
+        }
         // Specific folder filter
         posts = await pazzaDao.findPostsByFolder(cid, folder);
       } else {
         // All posts for course
         posts = await pazzaDao.findAllPosts(cid);
       }
+      
+      // Filter out drafts from regular posts (drafts only visible in Drafts folder)
+      posts = posts.filter(post => !post.isDraft);
       
       // Filter posts based on visibility and user permissions
       const visiblePosts = posts.filter(post => canViewPost(post, currentUser));
@@ -217,8 +261,81 @@ export default function PazzaRoutes(app) {
         folders,
         visibility: visibility || "ENTIRE_CLASS",
         visibleToUserIds: visibleToUserIds || [],
+        isDraft: false, // Regular posts are not drafts
       });
       res.send(newPost);
+    } catch (error) {
+      res.status(500).send({ error: error.message });
+    }
+  });
+
+  /**
+   * POST /api/courses/:cid/pazza/drafts
+   * Save a post as draft (private to author, not published)
+   * Body: { authorId, authorName, authorRole, type, summary, details, folders, visibility, visibleToUserIds }
+   * Returns: Created draft
+   */
+  app.post("/api/courses/:cid/pazza/drafts", async (req, res) => {
+    const { cid } = req.params;
+    const { authorId, authorName, authorRole, type, summary, details, folders, visibility, visibleToUserIds } = req.body;
+
+    // Minimal validation for drafts (allow incomplete posts)
+    if (!authorId || !authorName || !authorRole) {
+      return res.status(400).send({ error: "Author information is required" });
+    }
+
+    try {
+      const draft = await pazzaDao.createPost({
+        courseId: cid,
+        authorId,
+        authorName,
+        authorRole,
+        type: type || "QUESTION",
+        summary: summary || "Untitled Draft",
+        details: details || "",
+        folders: folders && folders.length > 0 ? folders : ["Drafts"],
+        visibility: visibility || "ENTIRE_CLASS",
+        visibleToUserIds: visibleToUserIds || [],
+        isDraft: true, // Mark as draft
+      });
+      res.send(draft);
+    } catch (error) {
+      res.status(500).send({ error: error.message });
+    }
+  });
+
+  /**
+   * PUT /api/courses/:cid/pazza/drafts/:did
+   * Update a draft (edit)
+   * Body: { type, summary, details, folders, visibility, visibleToUserIds }
+   * Returns: Updated draft
+   */
+  app.put("/api/courses/:cid/pazza/drafts/:did", async (req, res) => {
+    const { did } = req.params;
+    const currentUser = req.session?.currentUser;
+
+    if (!currentUser) {
+      return res.status(401).send({ error: "User must be logged in" });
+    }
+
+    try {
+      const draft = await pazzaDao.findPostById(did);
+      if (!draft) {
+        return res.status(404).send({ error: "Draft not found" });
+      }
+
+      // Check authorization - only author can edit their draft
+      if (draft.authorId !== currentUser._id) {
+        return res.status(403).send({ error: "You can only edit your own drafts" });
+      }
+
+      if (!draft.isDraft) {
+        return res.status(400).send({ error: "Cannot edit a published post. Only drafts can be edited." });
+      }
+
+      const updates = req.body;
+      const updatedDraft = await pazzaDao.updatePost(did, updates);
+      res.send(updatedDraft);
     } catch (error) {
       res.status(500).send({ error: error.message });
     }
@@ -237,6 +354,61 @@ export default function PazzaRoutes(app) {
     try {
       const updatedPost = await pazzaDao.updatePost(pid, updates);
       res.send(updatedPost);
+    } catch (error) {
+      res.status(500).send({ error: error.message });
+    }
+  });
+
+  /**
+   * PUT /api/courses/:cid/pazza/posts/:pid/publish
+   * Publish a draft (convert isDraft: true to false and validate fields)
+   * Body: { summary, details, folders, visibility, visibleToUserIds }
+   * Returns: Published post
+   */
+  app.put("/api/courses/:cid/pazza/posts/:pid/publish", async (req, res) => {
+    const { pid } = req.params;
+    const currentUser = req.session?.currentUser;
+    const { summary, details, folders, visibility, visibleToUserIds } = req.body;
+
+    try {
+      const post = await pazzaDao.findPostById(pid);
+      if (!post) {
+        return res.status(404).send({ error: "Draft not found" });
+      }
+
+      // Check authorization - only author can publish their draft
+      if (post.authorId !== currentUser?._id) {
+        return res.status(403).send({ error: "You can only publish your own drafts" });
+      }
+
+      if (!post.isDraft) {
+        return res.status(400).send({ error: "Post is already published" });
+      }
+
+      // Validate before publishing
+      if (!summary || summary.trim().length === 0) {
+        return res.status(400).send({ error: "Summary is required before publishing" });
+      }
+      if (summary.length > 100) {
+        return res.status(400).send({ error: "Summary must be 100 characters or less" });
+      }
+      if (!details || details.trim().length === 0) {
+        return res.status(400).send({ error: "Details are required before publishing" });
+      }
+      if (!folders || folders.length === 0) {
+        return res.status(400).send({ error: "At least one folder must be selected" });
+      }
+
+      // Update all fields and publish
+      const publishedPost = await pazzaDao.updatePost(pid, {
+        summary,
+        details,
+        folders,
+        visibility: visibility || "ENTIRE_CLASS",
+        visibleToUserIds: visibleToUserIds || [],
+        isDraft: false,
+      });
+      res.send(publishedPost);
     } catch (error) {
       res.status(500).send({ error: error.message });
     }
@@ -305,6 +477,49 @@ export default function PazzaRoutes(app) {
       // Update post visibility
       const updatedPost = await pazzaDao.setPostVisibility(pid, visibility, visibleToUserIds || []);
       res.send(updatedPost);
+    } catch (error) {
+      res.status(500).send({ error: error.message });
+    }
+  });
+
+  // Pin or unpin posts (instructors only)
+  app.put("/api/courses/:cid/pazza/posts/pin", async (req, res) => {
+    const currentUser = req.session?.currentUser;
+    const { postIds } = req.body;
+
+    if (!currentUser || !["INSTRUCTOR", "FACULTY", "TA", "ADMIN"].includes(currentUser.role)) {
+      return res.status(403).send({ error: "Only instructors can pin posts" });
+    }
+    if (!Array.isArray(postIds) || postIds.length === 0) {
+      return res.status(400).send({ error: "postIds array is required" });
+    }
+
+    try {
+      const updated = await Promise.all(
+        postIds.map((id) => pazzaDao.updatePost(id, { isPinned: true }))
+      );
+      res.send({ pinned: updated.filter(Boolean).length });
+    } catch (error) {
+      res.status(500).send({ error: error.message });
+    }
+  });
+
+  app.put("/api/courses/:cid/pazza/posts/unpin", async (req, res) => {
+    const currentUser = req.session?.currentUser;
+    const { postIds } = req.body;
+
+    if (!currentUser || !["INSTRUCTOR", "FACULTY", "TA", "ADMIN"].includes(currentUser.role)) {
+      return res.status(403).send({ error: "Only instructors can unpin posts" });
+    }
+    if (!Array.isArray(postIds) || postIds.length === 0) {
+      return res.status(400).send({ error: "postIds array is required" });
+    }
+
+    try {
+      const updated = await Promise.all(
+        postIds.map((id) => pazzaDao.updatePost(id, { isPinned: false }))
+      );
+      res.send({ unpinned: updated.filter(Boolean).length });
     } catch (error) {
       res.status(500).send({ error: error.message });
     }
@@ -524,7 +739,7 @@ export default function PazzaRoutes(app) {
     const { pid } = req.params;
 
     try {
-      const discussions = await pazzaDao.findAllDiscussionsForPost(pid);
+      const discussions = await pazzaDao.findDiscussionsWithReplies(pid);
       res.send(discussions);
     } catch (error) {
       res.status(500).send({ error: error.message });
@@ -593,13 +808,13 @@ export default function PazzaRoutes(app) {
     }
 
     try {
-      // Find parent discussion to get postId
-      const parentDiscussion = await pazzaDao.findAllDiscussionTreeForPost("dummy");
-      // Note: In real implementation, should fetch parent to get postId
-      // For now, client should provide postId in body
+      const parent = await pazzaDao.findDiscussionById(did);
+      if (!parent) {
+        return res.status(404).send({ error: "Parent discussion not found" });
+      }
 
       const newReply = await pazzaDao.createDiscussion({
-        postId: req.body.postId,
+        postId: parent.postId,
         courseId: cid,
         authorId,
         authorName,
